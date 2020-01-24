@@ -8,35 +8,45 @@ device.on("data", infohandler);
 
 
 const pageTemplate = "@{include('html/agent.html')|escape}";
+const hsize = 128;
+const vsize = 128;
+
+assert (vsize%8 == 0);
 
 function requestHandler(request, response) {
     try {
         if (request.method == "GET") {
             if (request.path == "/") {
-                response.send(200, format(pageTemplate, http.agenturl()));
+                response.send(200, format(pageTemplate, http.agenturl(), hsize, vsize));
             } else {
                 response.send(404, "Not found");
             }
         } else if (request.method == "POST") {
             local decoded = http.jsondecode(request.body);
             pixeldata <- http.base64decode(decoded["bytes"]);
-            local pixelblob = blob(128*128/8);
+            local pixelblob = blob(hsize*vsize/8);
             
+            if (pixeldata.len() != hsize*vsize*4) {
+                server.log(format("Bad image size %d when %d expected", pixeldata.len(), hsize*vsize*4));
+                response.send(400, "Bad request");
+                return;
+            }
+
             for (local index = 0 ; index < pixeldata.len(); index = index + 4) {
                 if (pixeldata[index+3] != 0) {
-                    local x = (index/4) % 128;
-                    local y = (index/4) / 128;
+                    local x = (index/4) % hsize;
+                    local y = (index/4) / hsize;
                     
                     local page = y/8;
                     local addr = x;
                     local bit = y%8;
-                    pixelblob[addr+128*page] = pixelblob[addr+128*page] | (1 << bit);
+                    pixelblob[addr+hsize*page] = pixelblob[addr+hsize*page] | (1 << bit);
                 }
             }
             
 
             local device_message = {};
-            device_message["stride"] <- 128;
+            device_message["stride"] <- hsize;
             device_message["pixels"] <- pixelblob;
             device.send("image", device_message);
             response.send(200, "OK");
